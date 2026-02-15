@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>神経衰弱 Ultimate AI v1.0</title>
+
+<style>
+:root{ --cardSize:90px; }
+
+body{
+margin:0;
+font-family:Arial, sans-serif;
+background:#030712;
+color:#9ffcff;
+overflow:hidden;
+}
+
+/* ===== 画面 ===== */
+.screen{
+position:absolute;
+width:100%;
+height:100%;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+animation:fade .4s;
+padding:10px;
+box-sizing:border-box;
+}
+.hidden{display:none;}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+
+/* ===== 降参 ===== */
+.surrender{
+position:absolute;
+top:15px;
+right:15px;
+padding:10px 16px;
+background:#ff3b3b;
+border:none;
+border-radius:10px;
+color:white;
+cursor:pointer;
+font-size:14px;
+}
+
+/* ===== パネル ===== */
+.panel{
+background:#081c2b;
+padding:20px 30px;
+border-radius:15px;
+box-shadow:0 0 20px #00eaff55;
+text-align:center;
+}
+
+button,select{
+margin:8px;
+padding:10px 15px;
+font-size:16px;
+border:none;
+border-radius:8px;
+background:#0090ff;
+color:white;
+cursor:pointer;
+}
+
+/* ===== スタート画面 レイアウト ===== */
+.startRow{
+display:flex;
+flex-direction:row;
+justify-content:center;
+align-items:center;
+gap:20px;
+margin-bottom:20px;
+}
+.startRow select{
+min-width:120px;
+}
+
+/* ===== 盤面 ===== */
+.board{
+display:grid;
+gap:10px;
+margin-top:15px;
+justify-content:center;
+}
+
+/* ===== カード ===== */
+.card{
+width:var(--cardSize);
+height:calc(var(--cardSize)*1.2);
+border-radius:12px;
+background:#002b5c;
+display:flex;
+justify-content:center;
+align-items:center;
+font-size:calc(var(--cardSize)*0.45);
+cursor:pointer;
+transition:transform .3s, background .3s, box-shadow .3s;
+box-shadow:0 0 15px #00eaff88 inset;
+transform:translateZ(0);
+}
+
+.card.open{
+background:#001d3d;
+transform:scale(1.1);
+box-shadow:0 0 25px #00eaff;
+}
+
+.card.matched{
+background:#00ff9c;
+color:black;
+animation:matchedEffect .6s;
+}
+
+@keyframes matchedEffect{
+0%{box-shadow:0 0 15px #00eaff88 inset;}
+50%{box-shadow:0 0 40px #00ff9c, 0 0 50px #00ff9c;}
+100%{box-shadow:0 0 25px #00ff9c;}
+}
+
+/* ===== シェイク ===== */
+.shakeWrap{
+will-change:transform;
+animation:shake .35s ease;
+animation-fill-mode:both;
+}
+
+@keyframes shake{
+25%{transform:translate3d(-6px,4px,0)}
+50%{transform:translate3d(6px,-4px,0)}
+75%{transform:translate3d(-4px,3px,0)}
+100%{transform:translate3d(0,0,0)}
+}
+
+/* ===== AI思考 ===== */
+.thinking{font-size:22px;opacity:.8;height:28px;margin:10px;}
+.dots::after{content:"";animation:dots 1.2s infinite;}
+@keyframes dots{0%{content:""}33%{content:"."}66%{content:".."}100%{content:"..."}}
+
+.timer{font-size:22px;}
+.result{font-size:70px;}
+.win{color:gold; animation:winEffect 1s;}
+.lose{color:red; animation:loseEffect 1s;}
+.draw{color:silver; animation:drawEffect 1s;}
+
+@keyframes winEffect{0%{transform:scale(0.7);}50%{transform:scale(1.2);}100%{transform:scale(1);}}
+@keyframes loseEffect{0%{transform:scale(1.2);}50%{transform:scale(0.8);}100%{transform:scale(1);}}
+@keyframes drawEffect{0%{transform:scale(0.8);}50%{transform:scale(1.1);}100%{transform:scale(1);}}
+</style>
+</head>
+
+<body>
+
+<!-- スタート -->
+<div id="startScreen" class="screen">
+<div class="panel">
+<h1>神経衰弱</h1>
+
+<div class="startRow">
+<div>
+<label>カード数</label><br>
+<select id="size">
+<option value="12" selected>4×3</option>
+<option value="16">4×4</option>
+<option value="24">6×4</option>
+</select>
+</div>
+
+<div>
+<label>AIレベル</label><br>
+<select id="level">
+<option value="low">低</option>
+<option value="mid">中</option>
+<option value="high">高</option>
+<option value="max">最高</option>
+<option value="pro">プロ</option>
+<option value="god">世界最強AI</option>
+</select>
+</div>
+</div>
+
+<button onclick="confirmStart()" style="margin-top:10px;">スタート</button>
+</div>
+</div>
+
+<!-- ゲーム -->
+<div id="gameScreen" class="screen hidden">
+<button class="surrender" onclick="surrender()">降参</button>
+<div id="info" style="font-size:22px;"></div>
+<div id="timer" class="timer"></div>
+<div id="thinking" class="thinking"></div>
+
+<div id="shakeWrap">
+<div id="board" class="board"></div>
+</div>
+</div>
+
+<!-- 結果 -->
+<div id="resultScreen" class="screen hidden">
+<div id="resultText" class="result"></div>
+<button onclick="location.reload()">OK</button>
+</div>
+
+<script>
+const icons=["🍎","🍌","🍇","🍓","🍒","🥝","🍍","🥑","🍉","🥥","🍋","🍊"];
+
+let cards=[],opened=[],matched=0;
+let player=0,npc=0,turn="player";
+let memory={},level="low";
+let timer=20,timerID;
+
+const sizeSel=document.getElementById("size");
+const levelSel=document.getElementById("level");
+const info=document.getElementById("info");
+const timerText=document.getElementById("timer");
+const thinking=document.getElementById("thinking");
+const gameScreen=document.getElementById("gameScreen");
+const resultScreen=document.getElementById("resultScreen");
+const resultText=document.getElementById("resultText");
+
+/* ===== 設定保存 ===== */
+sizeSel.value=localStorage.getItem("cardSize")||"12";
+levelSel.value=localStorage.getItem("npcLevel")||"low";
+sizeSel.onchange=()=>localStorage.setItem("cardSize",sizeSel.value);
+levelSel.onchange=()=>localStorage.setItem("npcLevel",levelSel.value);
+
+/* ===== 降参 ===== */
+function surrender(){
+if(confirm("本当に降参しますか？")){
+npc=999;
+endGame();
+}
+}
+
+/* ===== スタート確認 ===== */
+function confirmStart(){
+if(levelSel.value==="god"){
+if(!confirm("勝てる確率は100%中30%ですがスタートしますか？")) return;
+}
+startGame();
+}
+
+/* ===== 開始 ===== */
+function startGame(){
+document.getElementById("startScreen").classList.add("hidden");
+gameScreen.classList.remove("hidden");
+
+level=levelSel.value;
+const size=parseInt(sizeSel.value);
+
+const board=document.getElementById("board");
+board.innerHTML="";
+
+/* 列数 */
+let cols = (size===12 || size===16) ? 4 : 6;
+
+/* スマホ対応カードサイズ */
+const root=document.documentElement;
+let availableWidth=window.innerWidth-40;
+let cardSize=Math.min(90,Math.floor(availableWidth/cols)-10);
+root.style.setProperty("--cardSize",cardSize+"px");
+board.style.gridTemplateColumns=`repeat(${cols}, var(--cardSize))`;
+
+/* カード生成 */
+let arr=[];
+for(let i=0;i<size/2;i++) arr.push(icons[i],icons[i]);
+arr.sort(()=>Math.random()-0.5);
+
+cards=arr;
+opened=[];
+matched=0;
+player=0;
+npc=0;
+memory={};
+
+/* 最高・プロ・世界最強は先手ランダム */
+turn="player";
+if(level==="max" || level==="pro" || level==="god"){
+turn=Math.random()<0.5?"player":"npc";
+}
+
+/* カード作成 */
+arr.forEach((v,i)=>{
+const c=document.createElement("div");
+c.className="card";
+c.dataset.i=i;
+c.onclick=()=>playerTurn(c);
+board.appendChild(c);
+});
+
+updateInfo();
+startTimer();
+
+if(turn==="npc") npcThink();
+}
+
+/* ===== タイマー ===== */
+function startTimer(){
+clearInterval(timerID);
+timer=20;
+timerText.textContent="残り "+timer;
+timerID=setInterval(()=>{
+timer--;
+timerText.textContent="残り "+timer;
+if(timer<=0) timeout();
+},1000);
+}
+
+function timeout(){ closeOpened(); switchTurn(); }
+
+/* ===== UI ===== */
+function updateInfo(){
+info.textContent=`あなた ${player} - NPC ${npc} ｜ ${turn==="player"?"あなたの番":"AIの番"}`;
+}
+
+/* ===== ターン ===== */
+function switchTurn(){
+turn=turn==="player"?"npc":"player";
+updateInfo();
+startTimer();
+if(turn==="npc") npcThink();
+}
+
+/* ===== AI思考 ===== */
+function rand(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+
+function getThinkingDelay(){
+if(level==="low") return rand(400,800);
+if(level==="mid") return rand(600,1100);
+if(level==="high") return rand(900,1500);
+if(level==="max" || level==="pro") return rand(1000,5000);
+if(level==="god") return 500;
+return 800;
+}
+
+function npcThink(){
+thinking.innerHTML='AI思考中<span class="dots"></span>';
+const delay=getThinkingDelay();
+setTimeout(()=>{
+thinking.textContent="";
+npcTurn();
+},delay);
+}
+
+/* ===== プレイヤー ===== */
+function playerTurn(card){
+if(turn!=="player") return;
+openCard(card);
+}
+
+/* ===== カード開く ===== */
+function openCard(card){
+if(!card) return;
+if(card.classList.contains("open")||card.classList.contains("matched")) return;
+if(opened.length===2) return;
+
+const i=card.dataset.i;
+card.textContent=cards[i];
+card.classList.add("open");
+remember(i);
+opened.push(card);
+
+if(opened.length===2) setTimeout(checkPair,600);
+}
+
+/* ===== 記憶 ===== */
+function remember(i){
+const v=cards[i];
+if(!memory[v]) memory[v]=[];
+if(!memory[v].includes(i)) memory[v].push(i);
+}
+
+/* ===== 判定 ===== */
+function checkPair(){
+const [a,b]=opened;
+if(a.textContent===b.textContent){
+a.classList.add("matched");
+b.classList.add("matched");
+if(turn==="player") player++;
+else npc++;
+matched+=2;
+opened=[];
+updateInfo();
+if(matched===cards.length) return endGame();
+if(turn==="npc") npcThink();
+else startTimer();
+}else{
+shakeBoard();
+closeOpened();
+switchTurn();
+}
+}
+
+function closeOpened(){
+opened.forEach(c=>{c.classList.remove("open");c.textContent=""});
+opened=[];
+}
+
+/* ===== シェイク ===== */
+function shakeBoard(){
+const wrap=document.getElementById("shakeWrap");
+wrap.classList.remove("shakeWrap");
+void wrap.offsetWidth;
+wrap.classList.add("shakeWrap");
+}
+
+/* ===== NPC AI ===== */
+function npcTurn(){
+if(turn!=="npc") return;
+let first=null,second=null;
+let prob;
+if(level==="god") prob=1; // 世界最強は100%当てる
+else prob={low:0.2,mid:0.5,high:0.75,max:0.95,pro:1}[level];
+
+if(Math.random()<prob){[first,second]=findPerfectMove();}
+if(first===null){first=randomCard();second=randomCard(first);}
+openCard(getCard(first));
+setTimeout(()=>{if(turn!=="npc") return;openCard(getCard(second));},600);
+}
+
+function findPerfectMove(){
+for(let v in memory){
+const arr=memory[v].filter(i=>!isMatched(i));
+if(arr.length>=2) return [arr[0],arr[1]];
+}
+return [null,null];
+}
+
+function randomCard(exclude=null){
+let free=[];
+document.querySelectorAll(".card:not(.matched)").forEach(c=>{
+const i=parseInt(c.dataset.i);
+if(i!==exclude) free.push(i);
+});
+if(free.length===0) return null;
+return free[Math.floor(Math.random()*free.length)];
+}
+
+function isMatched(i){ return getCard(i).classList.contains("matched"); }
+function getCard(i){ return document.querySelector(`[data-i="${i}"]`); }
+
+/* ===== 終了 ===== */
+function endGame(){
+clearInterval(timerID);
+gameScreen.classList.add("hidden");
+resultScreen.classList.remove("hidden");
+
+if(player>npc){ resultText.textContent="勝ち"; resultText.className="result win"; }
+else if(player<npc){ resultText.textContent="負け"; resultText.className="result lose"; }
+else{ resultText.textContent="引き分け"; resultText.className="result draw"; }
+}
+</script>
+</body>
+</html>
